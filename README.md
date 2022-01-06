@@ -8,3 +8,6 @@ https://github.com/ongov/OpenVerify
 
 https://smarthealth.cards/en/
 https://github.com/smart-on-fhir/health-cards
+
+Vaccine type code, draft
+http://build.fhir.org/valueset-vaccine-code.html
