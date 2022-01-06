@@ -23,6 +23,8 @@ import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
@@ -44,6 +46,8 @@ import com.google.zxing.common.HybridBinarizer;
  * @author sellersj
  */
 public class QRCodeScannerSpike {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(QRCodeScannerSpike.class);
 
     private int count = 0;
 
@@ -128,7 +132,7 @@ public class QRCodeScannerSpike {
             StringBuilder b = new StringBuilder();
             String[] array = code.split("(?<=\\G.{2})");
             for (String string : array) {
-                System.out.println(String.format("Converting %s to %s to %s", string, Integer.parseInt(string) + 45,
+                LOGGER.debug(String.format("Converting %s to %s to %s", string, Integer.parseInt(string) + 45,
                     Character.toString(Integer.parseInt(string) + 45)));
                 b.append(fromCharCode(Integer.parseInt(string) + 45));
             }
