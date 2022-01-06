@@ -5,3 +5,6 @@ and it will extract basic info.
 
 References
 https://github.com/ongov/OpenVerify
+
+https://smarthealth.cards/en/
+https://github.com/smart-on-fhir/health-cards
