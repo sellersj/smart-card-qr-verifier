@@ -4,14 +4,22 @@ import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
 import java.io.File;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.MalformedURLException;
+import java.net.Proxy;
+import java.net.SocketAddress;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.interfaces.ECPublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.zip.Inflater;
 
 import javax.imageio.ImageIO;
@@ -34,7 +42,6 @@ import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
-import com.auth0.jwt.interfaces.ECDSAKeyProvider;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
@@ -53,6 +60,9 @@ import com.google.zxing.common.HybridBinarizer;
 public class QRCodeScannerSpike {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(QRCodeScannerSpike.class);
+
+    /** The standard path for the key store. Required to be passed if using a proxy. */
+    private static final String WELL_KNOWN_JWKS_PATH = "/.well-known/jwks.json";
 
     private int count = 0;
 
@@ -167,15 +177,16 @@ public class QRCodeScannerSpike {
             System.out.println("Raw signature: " + signature);
 
             // try to fake out the payload without the encrption
-            String faked = String.join(".", //
+            String rebuiltToken = String.join(".", //
                 encodeToBase64(header), //
                 encodeToBase64(payload), //
                 signature //
             );
-            System.out.println("Rebuilt jwt attmpt\n" + faked);
+            System.out.println("Rebuilt jwt attmpt\n" + rebuiltToken);
 
             // TODO figure out if we can use the JWS token to validate this
-            // useAuth0Library(b.toString());
+            // useAuth0Library(rebuiltToken);
+            validateToken(JWT.decode(rebuiltToken));
         }
     }
 
@@ -187,12 +198,7 @@ public class QRCodeScannerSpike {
     }
 
     private String encodeToBase64(String originalInput) {
-        System.out.println("about to encode: " + originalInput);
-        String result = Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(originalInput.getBytes(StandardCharsets.UTF_8));
-        System.out.println("about do to the result");
-        System.out.println("result : " + result);
-        return result;
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(originalInput.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -211,12 +217,12 @@ public class QRCodeScannerSpike {
             // TODO use
 
             Algorithm algorithm = Algorithm.HMAC256("secret");
-            JWTVerifier verifier = JWT.require(algorithm)//
+            JWTVerifier verifier = JWT.require(algorithm) //
                 .withIssuer("auth0") //
                 .build();
-            // DecodedJWT jwt = verifier.verify(token);
+            DecodedJWT jwt = verifier.verify(token);
             // TODO verify it, but right now just decode it
-            DecodedJWT jwt = JWT.decode(token);
+            // DecodedJWT jwt = JWT.decode(token);
 
             System.out.println("Auth0 library jst token is: " + jwt);
         } catch (JWTVerificationException exception) {
@@ -235,16 +241,52 @@ public class QRCodeScannerSpike {
         // TODO also consider packaging up these keys
         // if this is run behind a proxy, it might need the proxy config set in the object
 
-        JwkProvider provider = new UrlJwkProvider("https://prd.pkey.dhdp.ontariohealth.ca");
-        Jwk jwk;
+        JwkProvider provider = null;
+        if (null == System.getProperty("https.proxyHost")) {
+            LOGGER.info("Not going to use a proxy");
+            provider = new UrlJwkProvider("https://prd.pkey.dhdp.ontariohealth.ca");
+
+            dumpSystemProperties();
+        } else {
+            String proxyHost = System.getProperty("https.proxyHost");
+            String proxyPort = System.getProperty("https.proxyPort");
+
+            LOGGER.info(String.format("Going to use a proxy for the key with values ", proxyHost, proxyPort));
+
+            SocketAddress addr = new InetSocketAddress(proxyHost, Integer.valueOf(proxyPort));
+            Proxy proxy = new Proxy(Proxy.Type.HTTP, addr);
+            // 60 seconds
+            Integer timeout = 60 * 1000;
+            try {
+                provider = new UrlJwkProvider(new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH), //
+                    timeout, timeout, proxy);
+            } catch (MalformedURLException e) {
+                throw new RuntimeException("Could not setup the provider domain", e);
+            }
+        }
+
         try {
-            jwk = provider.get(decodedJWT.getKeyId());
-            // TODO figure out if there is a nicer way to do this
-            Algorithm algorithm = Algorithm.ECDSA256((ECDSAKeyProvider) provider);
+            Jwk jwk = provider.get(decodedJWT.getKeyId());
+            // TODO handler better if this is the wrong type of public key
+            ECPublicKey publicKey = (ECPublicKey) jwk.getPublicKey();
+
+            // TODO figure out if there is a nicer way to do this for "alg":"ES256"
+            // Algorithm algorithm = Algorithm.ECDSA256((ECDSAKeyProvider) provider);
+            Algorithm algorithm = Algorithm.ECDSA256(publicKey, null);
 
             algorithm.verify(decodedJWT);
         } catch (JwkException e) {
             throw new RuntimeException("Could not validate token " + decodedJWT, e);
+        }
+    }
+
+    private void dumpSystemProperties() {
+        Properties p = System.getProperties();
+        Enumeration keys = p.keys();
+        while (keys.hasMoreElements()) {
+            String key = (String) keys.nextElement();
+            String value = (String) p.get(key);
+            System.out.println(key + ": " + value);
         }
     }
 
