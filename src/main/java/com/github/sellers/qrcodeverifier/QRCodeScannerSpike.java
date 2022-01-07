@@ -9,7 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +33,6 @@ import com.auth0.jwk.UrlJwkProvider;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
-import com.auth0.jwt.interfaces.Claim;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.ECDSAKeyProvider;
 import com.auth0.jwt.interfaces.JWTVerifier;
@@ -49,7 +47,7 @@ import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
 
 /**
- * 
+ *
  * @author sellersj
  */
 public class QRCodeScannerSpike {
@@ -168,6 +166,14 @@ public class QRCodeScannerSpike {
             String signature = splits[2];
             System.out.println("Raw signature: " + signature);
 
+            // try to fake out the payload without the encrption
+            String faked = String.join(".", //
+                encodeToBase64(header), //
+                encodeToBase64(payload), //
+                signature //
+            );
+            System.out.println("Rebuilt jwt attmpt\n" + faked);
+
             // TODO figure out if we can use the JWS token to validate this
             // useAuth0Library(b.toString());
         }
@@ -180,9 +186,18 @@ public class QRCodeScannerSpike {
         return decodedString;
     }
 
+    private String encodeToBase64(String originalInput) {
+        System.out.println("about to encode: " + originalInput);
+        String result = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(originalInput.getBytes(StandardCharsets.UTF_8));
+        System.out.println("about do to the result");
+        System.out.println("result : " + result);
+        return result;
+    }
+
     /**
      * To match the String.fromCharCode from javascript.
-     * 
+     *
      * @param codePoints to pass
      * @return the string
      */
@@ -260,7 +275,7 @@ public class QRCodeScannerSpike {
         // Decode the bytes into a String
         // String outputString = new String(result, 0, resultLength, "UTF-8");
 
-        String outputString = new String(result.array(), StandardCharsets.UTF_8);
+        String outputString = new String(result.array(), StandardCharsets.UTF_8).trim();
         return outputString;
     }
 
