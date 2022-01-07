@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,10 +27,16 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.auth0.jwk.Jwk;
+import com.auth0.jwk.JwkException;
+import com.auth0.jwk.JwkProvider;
+import com.auth0.jwk.UrlJwkProvider;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
+import com.auth0.jwt.interfaces.Claim;
 import com.auth0.jwt.interfaces.DecodedJWT;
+import com.auth0.jwt.interfaces.ECDSAKeyProvider;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
@@ -118,6 +125,7 @@ public class QRCodeScannerSpike {
         }
     }
 
+    // TODO consider changing a parser that implements JWTParser
     private void extractValues(String qrCode) throws Exception {
         String prefix = "shc:/";
         if (!qrCode.startsWith(prefix)) {
@@ -185,6 +193,8 @@ public class QRCodeScannerSpike {
     private void useAuth0Library(String token) {
         try {
 
+            // TODO use
+
             Algorithm algorithm = Algorithm.HMAC256("secret");
             JWTVerifier verifier = JWT.require(algorithm)//
                 .withIssuer("auth0") //
@@ -197,6 +207,29 @@ public class QRCodeScannerSpike {
         } catch (JWTVerificationException exception) {
             System.err.println("Auth0 library could not decrpty token: " + token);
             exception.printStackTrace();
+        }
+    }
+
+    private void validateToken(DecodedJWT decodedJWT) {
+        // TODO use GuavaCachedJwkProvider ? Have to take into account the missing
+        // /.well-known/jwks.json
+
+        // TODO get the "iss" from the payload
+        // jwt.getPayload()
+
+        // TODO also consider packaging up these keys
+        // if this is run behind a proxy, it might need the proxy config set in the object
+
+        JwkProvider provider = new UrlJwkProvider("https://prd.pkey.dhdp.ontariohealth.ca");
+        Jwk jwk;
+        try {
+            jwk = provider.get(decodedJWT.getKeyId());
+            // TODO figure out if there is a nicer way to do this
+            Algorithm algorithm = Algorithm.ECDSA256((ECDSAKeyProvider) provider);
+
+            algorithm.verify(decodedJWT);
+        } catch (JwkException e) {
+            throw new RuntimeException("Could not validate token " + decodedJWT, e);
         }
     }
 
