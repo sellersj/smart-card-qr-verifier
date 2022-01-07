@@ -11,12 +11,15 @@ import java.net.SocketAddress;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.Key;
+import java.security.SecureRandom;
 import java.security.interfaces.ECPublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -31,6 +34,13 @@ import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.jose4j.jwa.AlgorithmConstraints;
+import org.jose4j.jwa.AlgorithmConstraints.ConstraintType;
+import org.jose4j.jwe.ContentEncryptionAlgorithmIdentifiers;
+import org.jose4j.jwe.JsonWebEncryption;
+import org.jose4j.jwe.KeyManagementAlgorithmIdentifiers;
+import org.jose4j.keys.AesKey;
+import org.jose4j.lang.ByteUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,6 +62,22 @@ import com.google.zxing.NotFoundException;
 import com.google.zxing.Result;
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
+import com.nimbusds.jose.JOSEObjectType;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSObject;
+import com.nimbusds.jose.Payload;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.jwk.source.RemoteJWKSet;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
+import com.nimbusds.jose.proc.JWSKeySelector;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
+import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
+import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
 /**
  *
@@ -323,7 +349,91 @@ public class QRCodeScannerSpike {
 
     public static void main(String[] args) throws Exception {
         QRCodeScannerSpike spike = new QRCodeScannerSpike();
-        spike.readFromPdfs();
+        // spike.readFromPdfs();
+        // spike.jose4jExample();
+        spike.nimbusExample2();
     }
 
+    private void jose4jExample() throws Exception {
+        Key key = new AesKey(ByteUtil.randomBytes(16));
+        JsonWebEncryption jwe = new JsonWebEncryption();
+        jwe.setPayload("Hello World!");
+        jwe.setAlgorithmHeaderValue(KeyManagementAlgorithmIdentifiers.A128KW);
+        jwe.setEncryptionMethodHeaderParameter(ContentEncryptionAlgorithmIdentifiers.AES_128_CBC_HMAC_SHA_256);
+        jwe.setKey(key);
+        String serializedJwe = jwe.getCompactSerialization();
+        System.out.println("Serialized Encrypted JWE: " + serializedJwe);
+        jwe = new JsonWebEncryption();
+        jwe.setAlgorithmConstraints(
+            new AlgorithmConstraints(ConstraintType.PERMIT, KeyManagementAlgorithmIdentifiers.A128KW));
+        jwe.setContentEncryptionAlgorithmConstraints(new AlgorithmConstraints(ConstraintType.PERMIT,
+            ContentEncryptionAlgorithmIdentifiers.AES_128_CBC_HMAC_SHA_256));
+        jwe.setKey(key);
+        jwe.setCompactSerialization(serializedJwe);
+        System.out.println("Payload: " + jwe.getPayload());
+    }
+
+    private void nimbusExample() throws Exception {
+        // Create an HMAC-protected JWS object with some payload
+        JWSObject jwsObject = new JWSObject(new JWSHeader(JWSAlgorithm.HS256), new Payload("Hello, world!"));
+
+        // We need a 256-bit key for HS256 which must be pre-shared
+        byte[] sharedKey = new byte[32];
+        new SecureRandom().nextBytes(sharedKey);
+
+        // Apply the HMAC to the JWS object
+        jwsObject.sign(new MACSigner(sharedKey));
+
+        // Output in URL-safe format
+        System.out.println(jwsObject.serialize());
+    }
+
+    private void nimbusExample2() throws Exception {
+        // The access token to validate, typically submitted with a HTTP header like
+        // Authorization: Bearer eyJraWQiOiJDWHVwIiwidHlwIjoiYXQrand0IiwiYWxnIjoi...
+        String accessToken = "eyJraWQiOiJDWHVwIiwidHlwIjoiYXQrand0IiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJib2IiLCJzY"
+            + "3AiOlsib3BlbmlkIiwiZW1haWwiXSwiY2xtIjpbIiFCZyJdLCJpc3MiOiJodHRwczpcL1wvZGVtby5jM"
+            + "mlkLmNvbVwvYzJpZCIsImV4cCI6MTU3MTMxMjAxOCwiaWF0IjoxNTcxMzExNDE4LCJ1aXAiOnsiZ3Jvd"
+            + "XBzIjpbImFkbWluIiwiYXVkaXQiXX0sImp0aSI6ImJBT1BiNWh5TW80IiwiY2lkIjoiMDAwMTIzIn0.Q"
+            + "hTAdJK8AbdJJhQarjOz_qvAINQeWJCIYSROVaeRpBfaOrTCUy5gWRf8xrpj1DMibdHwQGPdht3chlAC8"
+            + "LGbAorEu0tLLcOwKl4Ql-o30Tdd5QhjNb6PndOY89NbQ1O6cdOZhvV4XB-jUAXi3nDgCw3zvIn2348Va"
+            + "2fOAzxUvRs2OGsEDl5d9cmL3e68YqSh7ss12y9oBDyEyz8Py7dtXgt6Tg67n9WlEBG0r4KloGDBdbCCZ"
+            + "hlEyURkHaE-3nUcjwd-CEVeqWPO0bsLhwto-80j8BtsfD649GnvaMb9YdbdYhTTs-MkRUQpQIZT0s9oK"
+            + "uzKayvZhk0c_0FoSeW7rw";
+
+        // Create a JWT processor for the access tokens
+        ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
+
+        // Set the required "typ" header "at+jwt" for access tokens issued by the
+        // Connect2id server, may not be set by other servers
+        jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>(new JOSEObjectType("at+jwt")));
+
+        // The public RSA keys to validate the signatures will be sourced from the
+        // OAuth 2.0 server's JWK set, published at a well-known URL. The RemoteJWKSet
+        // object caches the retrieved keys to speed up subsequent look-ups and can
+        // also handle key-rollover
+        JWKSource<SecurityContext> keySource = new RemoteJWKSet<>(new URL("https://demo.c2id.com/c2id/jwks.json"));
+
+        // The expected JWS algorithm of the access tokens (agreed out-of-band)
+        JWSAlgorithm expectedJWSAlg = JWSAlgorithm.RS256;
+
+        // Configure the JWT processor with a key selector to feed matching public
+        // RSA keys sourced from the JWK set URL
+        JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(expectedJWSAlg, keySource);
+
+        jwtProcessor.setJWSKeySelector(keySelector);
+
+        // Set the required JWT claims for access tokens issued by the Connect2id
+        // server, may differ with other servers
+        jwtProcessor.setJWTClaimsSetVerifier(
+            new DefaultJWTClaimsVerifier(new JWTClaimsSet.Builder().issuer("https://demo.c2id.com/c2id").build(),
+                new HashSet<>(Arrays.asList("sub", "iat", "exp", "scp", "cid", "jti"))));
+
+        // Process the token
+        SecurityContext ctx = null; // optional context parameter, not required here
+        JWTClaimsSet claimsSet = jwtProcessor.process(accessToken, ctx);
+
+        // Print out the token claims set
+        System.out.println(claimsSet.toJSONObject());
+    }
 }
