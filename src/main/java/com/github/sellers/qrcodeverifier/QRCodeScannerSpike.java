@@ -272,6 +272,7 @@ public class QRCodeScannerSpike {
         // calling this will do the validation
         JWTClaimsSet claimsSet = processor.process(jwt, null);
 
+        System.out.println("Issuer is: " + claimsSet.getIssuer());
         System.out.println("Claims set: " + claimsSet);
     }
 
