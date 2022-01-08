@@ -198,24 +198,6 @@ public class QRCodeScannerSpike {
         return ImageIO.read(outputfile);
     }
 
-    /**
-     * Takes a base64 string of a compressed string that does not have any header info on it and
-     * converts it into a string.
-     * 
-     * @param payload base64 string of compressed text
-     * @return the decompressed string
-     * @throws Exception
-     */
-    private String decodePayload(String payload) {
-        try {
-            byte[] decodedBytes = Base64.getUrlDecoder().decode(payload);
-            byte[] decompressed = DeflateUtils.decompress(decodedBytes);
-            return new String(decompressed, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new RuntimeException("Could not decompress payload " + payload, e);
-        }
-    }
-
     public static void main(String[] args) throws Exception {
         QRCodeScannerSpike spike = new QRCodeScannerSpike();
         spike.readFromPdfs();
@@ -277,14 +259,15 @@ public class QRCodeScannerSpike {
         System.out.println("headers: " + jwt.getHeader());
         Payload payload = jwt.getPayload();
         // CompressionAlgorithm jsonPayload = new CompressionAlgorithm(payload.toString());
-        String jsonPayload = decodePayload(payload.toBase64URL().toString());
+        String jsonPayload = NoClaimsSignedJWT.decodePayload(payload.toBase64URL().toString());
         System.out.println("payload extracted: " + jsonPayload);
 
         // jwt.verify(null)
         // get this from the header? Check standard if this is hard coded
         RemoteJWKSet<?> jwkSet = new RemoteJWKSet<>(
             new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH));
-        JWSVerificationKeySelector keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256, jwkSet);
+        JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256,
+            jwkSet);
         DefaultJWTProcessor processor = new DefaultJWTProcessor();
         processor.setJWSKeySelector(keySelector);
 
@@ -292,8 +275,6 @@ public class QRCodeScannerSpike {
         JWTClaimsSet claimsSet = processor.process(jwt, null);
 
         System.out.println("Claims set: " + claimsSet);
-
-        // System.out.println("claim set: " + jwt.getJWTClaimsSet());
     }
 
 }
