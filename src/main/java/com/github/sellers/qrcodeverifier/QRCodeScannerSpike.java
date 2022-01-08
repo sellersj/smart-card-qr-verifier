@@ -362,6 +362,7 @@ public class QRCodeScannerSpike {
         return ImageIO.read(outputfile);
     }
 
+    // TODO replace with DeflateUtils.decompress if possible
     private String decodePayload(String payload) throws Exception {
         byte[] decodedBytes = Base64.getUrlDecoder().decode(payload);
         ByteBuffer byteBuffer = ByteBuffer.wrap(decodedBytes);
@@ -524,7 +525,8 @@ public class QRCodeScannerSpike {
 
         System.out.println("headers: " + jwt.getHeader());
         Payload payload = jwt.getPayload();
-        CompressionAlgorithm jsonPayload = new CompressionAlgorithm(payload.toString());
+        // CompressionAlgorithm jsonPayload = new CompressionAlgorithm(payload.toString());
+        String jsonPayload = decodePayload(payload.toBase64URL().toString());
         System.out.println("payload extracted: " + jsonPayload);
 
         // jwt.verify(null)
