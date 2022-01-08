@@ -44,6 +44,7 @@ import org.jose4j.keys.AesKey;
 import org.jose4j.lang.ByteUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.oauth2.jwt.JwtDecoders;
 
 import com.auth0.exception.PublicKeyProviderException;
 import com.auth0.jwk.Jwk;
@@ -68,6 +69,7 @@ import com.google.zxing.NotFoundException;
 import com.google.zxing.Result;
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
+import com.nimbusds.jose.CompressionAlgorithm;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -218,7 +220,12 @@ public class QRCodeScannerSpike {
 
             // TODO figure out if we can use the JWS token to validate this
             // useAuth0Library(rebuiltToken);
-            validateToken(JWT.decode(rebuiltToken));
+            // validateToken(JWT.decode(rebuiltToken));
+
+            // TODO jim
+            // nimbusExample3(rebuiltToken);
+            // nimbusExample3(b.toString());
+            nimbusExample4(b.toString());
         }
     }
 
@@ -379,9 +386,9 @@ public class QRCodeScannerSpike {
 
     public static void main(String[] args) throws Exception {
         QRCodeScannerSpike spike = new QRCodeScannerSpike();
-        // spike.readFromPdfs();
+        spike.readFromPdfs();
         // spike.jose4jExample();
-        spike.nimbusExample2();
+        // spike.nimbusExample2();
     }
 
     private void jose4jExample() throws Exception {
@@ -442,7 +449,7 @@ public class QRCodeScannerSpike {
         // OAuth 2.0 server's JWK set, published at a well-known URL. The RemoteJWKSet
         // object caches the retrieved keys to speed up subsequent look-ups and can
         // also handle key-rollover
-        JWKSource<SecurityContext> keySource = new RemoteJWKSet<>(new URL("https://demo.c2id.com/c2id/jwks.json"));
+        JWKSource<SecurityContext> keySource = new RemoteJWKSet<>(new URL("https://demo.c2id.com/jwks.json"));
 
         // The expected JWS algorithm of the access tokens (agreed out-of-band)
         JWSAlgorithm expectedJWSAlg = JWSAlgorithm.RS256;
@@ -465,5 +472,76 @@ public class QRCodeScannerSpike {
 
         // Print out the token claims set
         System.out.println(claimsSet.toJSONObject());
+    }
+
+    private void nimbusExample3(String accessToken) throws Exception {
+
+        // Create a JWT processor for the access tokens
+        ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
+
+        // Set the required "typ" header "at+jwt" for access tokens issued by the
+        // Connect2id server, may not be set by other servers
+        // jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>(new
+        // JOSEObjectType("at+jwt")));
+        jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>());
+
+        // The public RSA keys to validate the signatures will be sourced from the
+        // OAuth 2.0 server's JWK set, published at a well-known URL. The RemoteJWKSet
+        // object caches the retrieved keys to speed up subsequent look-ups and can
+        // also handle key-rollover
+        JWKSource<SecurityContext> keySource = new RemoteJWKSet<>(
+            new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH));
+
+        // The expected JWS algorithm of the access tokens (agreed out-of-band)
+        JWSAlgorithm expectedJWSAlg = JWSAlgorithm.ES256;
+
+        // Configure the JWT processor with a key selector to feed matching public
+        // RSA keys sourced from the JWK set URL
+        JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(expectedJWSAlg, keySource);
+
+        jwtProcessor.setJWSKeySelector(keySelector);
+
+        // Set the required JWT claims for access tokens issued by the Connect2id
+        // server, may differ with other servers
+        // jwtProcessor.setJWTClaimsSetVerifier(new DefaultJWTClaimsVerifier(
+        // new JWTClaimsSet.Builder().issuer("https://prd.pkey.dhdp.ontariohealth.ca").build(),
+        // new HashSet<>(Arrays.asList("sub", "iat", "exp", "scp", "cid", "jti"))));
+        jwtProcessor.setJWTClaimsSetVerifier(new DefaultJWTClaimsVerifier(
+            new JWTClaimsSet.Builder().issuer("https://prd.pkey.dhdp.ontariohealth.ca").build(),
+            new HashSet<>(Arrays.asList())));
+
+        // Process the token
+        SecurityContext ctx = null; // optional context parameter, not required here
+        JWTClaimsSet claimsSet = jwtProcessor.process(accessToken, ctx);
+
+        // Print out the token claims set
+        System.out.println(claimsSet.toJSONObject());
+    }
+
+    private void nimbusExample4(String accessToken) throws Exception {
+        // SignedJWT signedJWT = SignedJWT.parse(accessToken);
+        NoClaimsSignedJWT jwt = NoClaimsSignedJWT.parse(accessToken);
+
+        System.out.println("headers: " + jwt.getHeader());
+        Payload payload = jwt.getPayload();
+        CompressionAlgorithm jsonPayload = new CompressionAlgorithm(payload.toString());
+        System.out.println("payload extracted: " + jsonPayload);
+
+        // jwt.verify(null)
+        // get this from the header? Check standard if this is hard coded
+        RemoteJWKSet jwkSet = new RemoteJWKSet<>(
+            new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH));
+        JWSVerificationKeySelector keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256, jwkSet);
+        DefaultJWTProcessor processor = new DefaultJWTProcessor();
+        processor.setJWSKeySelector(keySelector);
+        JWTClaimsSet claimsSet = processor.process(jwt, null);
+
+        System.out.println("Claims set: " + claimsSet);
+
+        // System.out.println("claim set: " + jwt.getJWTClaimsSet());
+    }
+
+    private void springExample() {
+        JwtDecoders.fromIssuerLocation("https://prd.pkey.dhdp.ontariohealth.ca");
     }
 }
