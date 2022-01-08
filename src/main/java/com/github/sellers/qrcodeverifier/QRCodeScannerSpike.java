@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.security.SecureRandom;
 import java.security.interfaces.ECPublicKey;
+import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -44,15 +45,20 @@ import org.jose4j.lang.ByteUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.auth0.exception.PublicKeyProviderException;
 import com.auth0.jwk.Jwk;
 import com.auth0.jwk.JwkException;
 import com.auth0.jwk.JwkProvider;
+import com.auth0.jwk.JwkProviderBuilder;
 import com.auth0.jwk.UrlJwkProvider;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
+import com.auth0.utils.tokens.IdTokenVerifier;
+import com.auth0.utils.tokens.PublicKeyProvider;
+import com.auth0.utils.tokens.SignatureVerifier;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
@@ -304,6 +310,30 @@ public class QRCodeScannerSpike {
         } catch (JwkException e) {
             throw new RuntimeException("Could not validate token " + decodedJWT, e);
         }
+    }
+
+    private void validateJWS() {
+        JwkProvider provider = new JwkProviderBuilder("https://prd.pkey.dhdp.ontariohealth.ca").build();
+        SignatureVerifier signatureVerifier = SignatureVerifier.forRS256(new PublicKeyProvider() {
+
+            @Override
+            public RSAPublicKey getPublicKeyById(String keyId) throws PublicKeyProviderException {
+                try {
+                    return (RSAPublicKey) provider.get(keyId).getPublicKey();
+                } catch (JwkException jwke) {
+                    throw new PublicKeyProviderException("Error obtaining public key", jwke);
+                }
+            }
+        });
+
+        IdTokenVerifier idTokenVerifier = IdTokenVerifier
+            .init("https://your-domain.auth0.com/", "your-client-id", signatureVerifier).build();
+
+        // try {
+        // idTokenVerifier.verify("token", "expected-nonce");
+        // } catch(IdTokenValidationException idtve) {
+        // // Handle invalid token exception
+        // }
     }
 
     private void dumpSystemProperties() {
