@@ -50,6 +50,7 @@ import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
 import com.nimbusds.jose.proc.JWSKeySelector;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jose.util.DeflateUtils;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
@@ -65,6 +66,8 @@ public class QRCodeScannerSpike {
 
     /** The standard path for the key store. Required to be passed if using a proxy. */
     private static final String WELL_KNOWN_JWKS_PATH = "/.well-known/jwks.json";
+
+    private static final String QR_CODE_PREFIX = "shc:/";
 
     private int count = 0;
 
@@ -107,8 +110,7 @@ public class QRCodeScannerSpike {
             result = new MultiFormatReader().decode(bitmap, hints);
             return result.getText();
         } catch (NotFoundException e) {
-            // log.error("QRCode not found", e);
-            System.err.println("QR Code not found");
+            LOGGER.debug("QRCode not found", e);
         }
 
         // if we are here, it didn't work.
@@ -120,85 +122,60 @@ public class QRCodeScannerSpike {
 
         // Path where the QR code is saved
         File file = new File(System.getProperty("user.home") + "/Downloads/example-covid-generated.pdf");
-        PDDocument pdDoc = PDDocument.load(file);
-
-        List<RenderedImage> images = getImagesFromPDF(pdDoc);
-        System.out.println(String.format("Found %s images", images.size()));
-        for (RenderedImage renderedImage : images) {
-            // System.out.println(renderedImage);
-
-            String result = decodeQRCode(toBufferedImage(renderedImage));
-            if (null != result) {
-                System.out.println(result);
-                extractValues(result);
-            }
+        List<String> qrCodesFromPdf = getQrCodesFromPdf(file);
+        for (String qrCode : qrCodesFromPdf) {
+            String rawJwt = smartQrCodeToJwt(qrCode);
+            validateToken(rawJwt);
         }
+    }
+
+    private List<String> getQrCodesFromPdf(File file) {
+        List<String> result = new ArrayList<>();
+
+        try {
+            PDDocument pdDoc = PDDocument.load(file);
+
+            List<RenderedImage> images = getImagesFromPDF(pdDoc);
+            LOGGER.debug(String.format("Found %s images in file %s", images.size(), file));
+            for (RenderedImage renderedImage : images) {
+                // System.out.println(renderedImage);
+
+                String qrCode = decodeQRCode(toBufferedImage(renderedImage));
+                if (null != qrCode && qrCode.startsWith(QR_CODE_PREFIX)) {
+                    result.add(qrCode);
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Could not read pdf file " + file, e);
+        }
+
+        return result;
     }
 
     // TODO consider changing a parser that implements JWTParser
-    private void extractValues(String qrCode) throws Exception {
-        String prefix = "shc:/";
-        if (!qrCode.startsWith(prefix)) {
-            System.err.println("this is not a valid qr code");
-        } else {
-            String code = qrCode.substring(prefix.length());
-            // TODO this should be validated to make sure it's even and all digits
-
-            System.out.println(String.format("Code is %s digits long", code.length()));
-
-            // there has to be better way for this
-            StringBuilder b = new StringBuilder();
-            String[] array = code.split("(?<=\\G.{2})");
-            for (String string : array) {
-                LOGGER.debug(String.format("Converting %s to %s to %s", string, Integer.parseInt(string) + 45,
-                    Character.toString(Integer.parseInt(string) + 45)));
-                b.append(fromCharCode(Integer.parseInt(string) + 45));
-            }
-
-            System.out.println("code is " + code);
-            System.out.println("b is " + b.toString());
-
-            String[] splits = b.toString().split("\\.");
-            System.out.println("there was " + splits.length + " sections");
-            for (String string : splits) {
-                System.out.println(String.format("Section is %s digits long", string.length()));
-                System.out.println(string);
-            }
-
-            // TODO throw exception if the number of arguments is bad
-
-            //
-
-            String header = getHeader(splits[0]);
-            System.out.println("Decoded header: " + header);
-
-            String payload = decodePayload(splits[1]);
-            System.out.println("Decoded payload: " + payload);
-
-            String signature = splits[2];
-            System.out.println("Raw signature: " + signature);
-
-            // try to fake out the payload without the encrption
-            String rebuiltToken = String.join(".", //
-                encodeToBase64(header), //
-                encodeToBase64(payload), //
-                signature //
-            );
-            System.out.println("Rebuilt jwt attmpt\n" + rebuiltToken);
-
-            nimbusExample4(b.toString());
+    private String smartQrCodeToJwt(String qrCode) throws Exception {
+        if (!qrCode.startsWith(QR_CODE_PREFIX)) {
+            throw new IllegalArgumentException("this is not a valid qr code " + qrCode);
         }
-    }
 
-    private String getHeader(String rawHeader) {
-        byte[] decodedBytes = Base64.getUrlDecoder().decode(rawHeader);
-        String decodedString = new String(decodedBytes);
+        String code = qrCode.substring(QR_CODE_PREFIX.length());
+        // TODO this should be validated to make sure it's even and all digits
 
-        return decodedString;
-    }
+        LOGGER.debug(String.format("Code is %s digits long", code.length()));
 
-    private String encodeToBase64(String originalInput) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(originalInput.getBytes(StandardCharsets.UTF_8));
+        // there has to be better way for this
+        StringBuilder b = new StringBuilder();
+        String[] array = code.split("(?<=\\G.{2})");
+        for (String string : array) {
+            LOGGER.debug(String.format("Converting %s to %s to %s", string, Integer.parseInt(string) + 45,
+                Character.toString(Integer.parseInt(string) + 45)));
+            b.append(fromCharCode(Integer.parseInt(string) + 45));
+        }
+
+        String result = b.toString();
+        LOGGER.debug("Convered code to: " + result);
+
+        return result;
     }
 
     /**
@@ -211,7 +188,7 @@ public class QRCodeScannerSpike {
         return new String(codePoints, 0, codePoints.length);
     }
 
-    public BufferedImage toBufferedImage(RenderedImage renderedImage) throws Exception {
+    public BufferedImage toBufferedImage(RenderedImage renderedImage) throws IOException {
         // TODO this would be better as a temp or totally streamed without actually writing a file
         File outputfile = new File("target/saved" + count++ + ".png");
         ImageIO.write(renderedImage, "png", outputfile);
@@ -220,47 +197,27 @@ public class QRCodeScannerSpike {
         return ImageIO.read(outputfile);
     }
 
-    // TODO replace with DeflateUtils.decompress if possible
-    private String decodePayload(String payload) throws Exception {
-        byte[] decodedBytes = Base64.getUrlDecoder().decode(payload);
-        ByteBuffer byteBuffer = ByteBuffer.wrap(decodedBytes);
-
-        // Decompress the bytes but ignore headers
-        Inflater decompresser = new Inflater(true);
-        decompresser.setInput(byteBuffer);
-
-        // byte[] result = new byte[10000];
-        // TODO this needs to be better to propertly buffer the size of the payload
-        ByteBuffer result = ByteBuffer.allocate(240000);
-
-        int resultLength = decompresser.inflate(result);
-        decompresser.end();
-
-        // Decode the bytes into a String
-        // String outputString = new String(result, 0, resultLength, "UTF-8");
-
-        String outputString = new String(result.array(), StandardCharsets.UTF_8).trim();
-        return outputString;
+    /**
+     * Takes a base64 string of a compressed string that does not have any header info on it and
+     * converts it into a string.
+     * 
+     * @param payload base64 string of compressed text
+     * @return the decompressed string
+     * @throws Exception
+     */
+    private String decodePayload(String payload) {
+        try {
+            byte[] decodedBytes = Base64.getUrlDecoder().decode(payload);
+            byte[] decompressed = DeflateUtils.decompress(decodedBytes);
+            return new String(decompressed, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new RuntimeException("Could not decompress payload " + payload, e);
+        }
     }
 
     public static void main(String[] args) throws Exception {
         QRCodeScannerSpike spike = new QRCodeScannerSpike();
         spike.readFromPdfs();
-    }
-
-    private void nimbusExample() throws Exception {
-        // Create an HMAC-protected JWS object with some payload
-        JWSObject jwsObject = new JWSObject(new JWSHeader(JWSAlgorithm.HS256), new Payload("Hello, world!"));
-
-        // We need a 256-bit key for HS256 which must be pre-shared
-        byte[] sharedKey = new byte[32];
-        new SecureRandom().nextBytes(sharedKey);
-
-        // Apply the HMAC to the JWS object
-        jwsObject.sign(new MACSigner(sharedKey));
-
-        // Output in URL-safe format
-        System.out.println(jwsObject.serialize());
     }
 
     private void nimbusExample2() throws Exception {
@@ -312,7 +269,7 @@ public class QRCodeScannerSpike {
         System.out.println(claimsSet.toJSONObject());
     }
 
-    private void nimbusExample4(String accessToken) throws Exception {
+    private void validateToken(String accessToken) throws Exception {
         // SignedJWT signedJWT = SignedJWT.parse(accessToken);
         NoClaimsSignedJWT jwt = NoClaimsSignedJWT.parse(accessToken);
 
@@ -324,11 +281,13 @@ public class QRCodeScannerSpike {
 
         // jwt.verify(null)
         // get this from the header? Check standard if this is hard coded
-        RemoteJWKSet jwkSet = new RemoteJWKSet<>(
+        RemoteJWKSet<?> jwkSet = new RemoteJWKSet<>(
             new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH));
         JWSVerificationKeySelector keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256, jwkSet);
         DefaultJWTProcessor processor = new DefaultJWTProcessor();
         processor.setJWSKeySelector(keySelector);
+
+        // calling this will do the validation
         JWTClaimsSet claimsSet = processor.process(jwt, null);
 
         System.out.println("Claims set: " + claimsSet);
