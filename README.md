@@ -12,3 +12,6 @@ References
 
 Vaccine type code, draft
 * http://build.fhir.org/valueset-vaccine-code.html
+
+After trying many, many libraries, I found nimbus could read it and allow modifications to be able to deal with the SMART health card QA code
+* https://connect2id.com/products/nimbus-jose-jwt

@@ -4,26 +4,17 @@ import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
 import java.io.File;
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
-import java.net.Proxy;
-import java.net.SocketAddress;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
 import java.security.SecureRandom;
-import java.security.interfaces.ECPublicKey;
-import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.zip.Inflater;
 
 import javax.imageio.ImageIO;
@@ -35,31 +26,9 @@ import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
-import org.jose4j.jwa.AlgorithmConstraints;
-import org.jose4j.jwa.AlgorithmConstraints.ConstraintType;
-import org.jose4j.jwe.ContentEncryptionAlgorithmIdentifiers;
-import org.jose4j.jwe.JsonWebEncryption;
-import org.jose4j.jwe.KeyManagementAlgorithmIdentifiers;
-import org.jose4j.keys.AesKey;
-import org.jose4j.lang.ByteUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.oauth2.jwt.JwtDecoders;
 
-import com.auth0.exception.PublicKeyProviderException;
-import com.auth0.jwk.Jwk;
-import com.auth0.jwk.JwkException;
-import com.auth0.jwk.JwkProvider;
-import com.auth0.jwk.JwkProviderBuilder;
-import com.auth0.jwk.UrlJwkProvider;
-import com.auth0.jwt.JWT;
-import com.auth0.jwt.algorithms.Algorithm;
-import com.auth0.jwt.exceptions.JWTVerificationException;
-import com.auth0.jwt.interfaces.DecodedJWT;
-import com.auth0.jwt.interfaces.JWTVerifier;
-import com.auth0.utils.tokens.IdTokenVerifier;
-import com.auth0.utils.tokens.PublicKeyProvider;
-import com.auth0.utils.tokens.SignatureVerifier;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
@@ -69,7 +38,6 @@ import com.google.zxing.NotFoundException;
 import com.google.zxing.Result;
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
-import com.nimbusds.jose.CompressionAlgorithm;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -218,13 +186,6 @@ public class QRCodeScannerSpike {
             );
             System.out.println("Rebuilt jwt attmpt\n" + rebuiltToken);
 
-            // TODO figure out if we can use the JWS token to validate this
-            // useAuth0Library(rebuiltToken);
-            // validateToken(JWT.decode(rebuiltToken));
-
-            // TODO jim
-            // nimbusExample3(rebuiltToken);
-            // nimbusExample3(b.toString());
             nimbusExample4(b.toString());
         }
     }
@@ -248,109 +209,6 @@ public class QRCodeScannerSpike {
      */
     public static String fromCharCode(int... codePoints) {
         return new String(codePoints, 0, codePoints.length);
-    }
-
-    private void useAuth0Library(String token) {
-        try {
-
-            // TODO use
-
-            Algorithm algorithm = Algorithm.HMAC256("secret");
-            JWTVerifier verifier = JWT.require(algorithm) //
-                .withIssuer("auth0") //
-                .build();
-            DecodedJWT jwt = verifier.verify(token);
-            // TODO verify it, but right now just decode it
-            // DecodedJWT jwt = JWT.decode(token);
-
-            System.out.println("Auth0 library jst token is: " + jwt);
-        } catch (JWTVerificationException exception) {
-            System.err.println("Auth0 library could not decrpty token: " + token);
-            exception.printStackTrace();
-        }
-    }
-
-    private void validateToken(DecodedJWT decodedJWT) {
-        // TODO use GuavaCachedJwkProvider ? Have to take into account the missing
-        // /.well-known/jwks.json
-
-        // TODO get the "iss" from the payload
-        // jwt.getPayload()
-
-        // TODO also consider packaging up these keys
-        // if this is run behind a proxy, it might need the proxy config set in the object
-
-        JwkProvider provider = null;
-        if (null == System.getProperty("https.proxyHost")) {
-            LOGGER.info("Not going to use a proxy");
-            provider = new UrlJwkProvider("https://prd.pkey.dhdp.ontariohealth.ca");
-
-            dumpSystemProperties();
-        } else {
-            String proxyHost = System.getProperty("https.proxyHost");
-            String proxyPort = System.getProperty("https.proxyPort");
-
-            LOGGER.info(String.format("Going to use a proxy for the key with values ", proxyHost, proxyPort));
-
-            SocketAddress addr = new InetSocketAddress(proxyHost, Integer.valueOf(proxyPort));
-            Proxy proxy = new Proxy(Proxy.Type.HTTP, addr);
-            // 60 seconds
-            Integer timeout = 60 * 1000;
-            try {
-                provider = new UrlJwkProvider(new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH), //
-                    timeout, timeout, proxy);
-            } catch (MalformedURLException e) {
-                throw new RuntimeException("Could not setup the provider domain", e);
-            }
-        }
-
-        try {
-            Jwk jwk = provider.get(decodedJWT.getKeyId());
-            // TODO handler better if this is the wrong type of public key
-            ECPublicKey publicKey = (ECPublicKey) jwk.getPublicKey();
-
-            // TODO figure out if there is a nicer way to do this for "alg":"ES256"
-            // Algorithm algorithm = Algorithm.ECDSA256((ECDSAKeyProvider) provider);
-            Algorithm algorithm = Algorithm.ECDSA256(publicKey, null);
-
-            algorithm.verify(decodedJWT);
-        } catch (JwkException e) {
-            throw new RuntimeException("Could not validate token " + decodedJWT, e);
-        }
-    }
-
-    private void validateJWS() {
-        JwkProvider provider = new JwkProviderBuilder("https://prd.pkey.dhdp.ontariohealth.ca").build();
-        SignatureVerifier signatureVerifier = SignatureVerifier.forRS256(new PublicKeyProvider() {
-
-            @Override
-            public RSAPublicKey getPublicKeyById(String keyId) throws PublicKeyProviderException {
-                try {
-                    return (RSAPublicKey) provider.get(keyId).getPublicKey();
-                } catch (JwkException jwke) {
-                    throw new PublicKeyProviderException("Error obtaining public key", jwke);
-                }
-            }
-        });
-
-        IdTokenVerifier idTokenVerifier = IdTokenVerifier
-            .init("https://your-domain.auth0.com/", "your-client-id", signatureVerifier).build();
-
-        // try {
-        // idTokenVerifier.verify("token", "expected-nonce");
-        // } catch(IdTokenValidationException idtve) {
-        // // Handle invalid token exception
-        // }
-    }
-
-    private void dumpSystemProperties() {
-        Properties p = System.getProperties();
-        Enumeration keys = p.keys();
-        while (keys.hasMoreElements()) {
-            String key = (String) keys.nextElement();
-            String value = (String) p.get(key);
-            System.out.println(key + ": " + value);
-        }
     }
 
     public BufferedImage toBufferedImage(RenderedImage renderedImage) throws Exception {
@@ -388,27 +246,6 @@ public class QRCodeScannerSpike {
     public static void main(String[] args) throws Exception {
         QRCodeScannerSpike spike = new QRCodeScannerSpike();
         spike.readFromPdfs();
-        // spike.jose4jExample();
-        // spike.nimbusExample2();
-    }
-
-    private void jose4jExample() throws Exception {
-        Key key = new AesKey(ByteUtil.randomBytes(16));
-        JsonWebEncryption jwe = new JsonWebEncryption();
-        jwe.setPayload("Hello World!");
-        jwe.setAlgorithmHeaderValue(KeyManagementAlgorithmIdentifiers.A128KW);
-        jwe.setEncryptionMethodHeaderParameter(ContentEncryptionAlgorithmIdentifiers.AES_128_CBC_HMAC_SHA_256);
-        jwe.setKey(key);
-        String serializedJwe = jwe.getCompactSerialization();
-        System.out.println("Serialized Encrypted JWE: " + serializedJwe);
-        jwe = new JsonWebEncryption();
-        jwe.setAlgorithmConstraints(
-            new AlgorithmConstraints(ConstraintType.PERMIT, KeyManagementAlgorithmIdentifiers.A128KW));
-        jwe.setContentEncryptionAlgorithmConstraints(new AlgorithmConstraints(ConstraintType.PERMIT,
-            ContentEncryptionAlgorithmIdentifiers.AES_128_CBC_HMAC_SHA_256));
-        jwe.setKey(key);
-        jwe.setCompactSerialization(serializedJwe);
-        System.out.println("Payload: " + jwe.getPayload());
     }
 
     private void nimbusExample() throws Exception {
@@ -475,50 +312,6 @@ public class QRCodeScannerSpike {
         System.out.println(claimsSet.toJSONObject());
     }
 
-    private void nimbusExample3(String accessToken) throws Exception {
-
-        // Create a JWT processor for the access tokens
-        ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
-
-        // Set the required "typ" header "at+jwt" for access tokens issued by the
-        // Connect2id server, may not be set by other servers
-        // jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>(new
-        // JOSEObjectType("at+jwt")));
-        jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>());
-
-        // The public RSA keys to validate the signatures will be sourced from the
-        // OAuth 2.0 server's JWK set, published at a well-known URL. The RemoteJWKSet
-        // object caches the retrieved keys to speed up subsequent look-ups and can
-        // also handle key-rollover
-        JWKSource<SecurityContext> keySource = new RemoteJWKSet<>(
-            new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH));
-
-        // The expected JWS algorithm of the access tokens (agreed out-of-band)
-        JWSAlgorithm expectedJWSAlg = JWSAlgorithm.ES256;
-
-        // Configure the JWT processor with a key selector to feed matching public
-        // RSA keys sourced from the JWK set URL
-        JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(expectedJWSAlg, keySource);
-
-        jwtProcessor.setJWSKeySelector(keySelector);
-
-        // Set the required JWT claims for access tokens issued by the Connect2id
-        // server, may differ with other servers
-        // jwtProcessor.setJWTClaimsSetVerifier(new DefaultJWTClaimsVerifier(
-        // new JWTClaimsSet.Builder().issuer("https://prd.pkey.dhdp.ontariohealth.ca").build(),
-        // new HashSet<>(Arrays.asList("sub", "iat", "exp", "scp", "cid", "jti"))));
-        jwtProcessor.setJWTClaimsSetVerifier(new DefaultJWTClaimsVerifier(
-            new JWTClaimsSet.Builder().issuer("https://prd.pkey.dhdp.ontariohealth.ca").build(),
-            new HashSet<>(Arrays.asList())));
-
-        // Process the token
-        SecurityContext ctx = null; // optional context parameter, not required here
-        JWTClaimsSet claimsSet = jwtProcessor.process(accessToken, ctx);
-
-        // Print out the token claims set
-        System.out.println(claimsSet.toJSONObject());
-    }
-
     private void nimbusExample4(String accessToken) throws Exception {
         // SignedJWT signedJWT = SignedJWT.parse(accessToken);
         NoClaimsSignedJWT jwt = NoClaimsSignedJWT.parse(accessToken);
@@ -543,7 +336,4 @@ public class QRCodeScannerSpike {
         // System.out.println("claim set: " + jwt.getJWTClaimsSet());
     }
 
-    private void springExample() {
-        JwtDecoders.fromIssuerLocation("https://prd.pkey.dhdp.ontariohealth.ca");
-    }
 }
