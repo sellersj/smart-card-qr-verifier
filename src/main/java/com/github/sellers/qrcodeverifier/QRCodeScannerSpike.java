@@ -5,9 +5,7 @@ import java.awt.image.RenderedImage;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -15,7 +13,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.Inflater;
 
 import javax.imageio.ImageIO;
 
@@ -40,10 +37,7 @@ import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.JWSObject;
 import com.nimbusds.jose.Payload;
-import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.RemoteJWKSet;
 import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
@@ -68,8 +62,6 @@ public class QRCodeScannerSpike {
     private static final String WELL_KNOWN_JWKS_PATH = "/.well-known/jwks.json";
 
     private static final String QR_CODE_PREFIX = "shc:/";
-
-    private int count = 0;
 
     public List<RenderedImage> getImagesFromPDF(PDDocument document) throws IOException {
         List<RenderedImage> images = new ArrayList<>();
@@ -152,8 +144,15 @@ public class QRCodeScannerSpike {
         return result;
     }
 
-    // TODO consider changing a parser that implements JWTParser
-    private String smartQrCodeToJwt(String qrCode) throws Exception {
+    /**
+     * 
+     * TODO consider changing a parser that implements JWTParser
+     * 
+     * @param qrCode smart health card QR code
+     * @return a JWT token with a compressed payload
+     * @throws Exception
+     */
+    private String smartQrCodeToJwt(String qrCode) {
         if (!qrCode.startsWith(QR_CODE_PREFIX)) {
             throw new IllegalArgumentException("this is not a valid qr code " + qrCode);
         }
@@ -189,8 +188,10 @@ public class QRCodeScannerSpike {
     }
 
     public BufferedImage toBufferedImage(RenderedImage renderedImage) throws IOException {
-        // TODO this would be better as a temp or totally streamed without actually writing a file
-        File outputfile = new File("target/saved" + count++ + ".png");
+        // TODO this would be better as streamed without actually writing a file
+        File outputfile = File.createTempFile("qr-code-" + System.currentTimeMillis() + "-", ".png");
+        outputfile.deleteOnExit();
+
         ImageIO.write(renderedImage, "png", outputfile);
 
         // TODO mark this file as to be deleted
