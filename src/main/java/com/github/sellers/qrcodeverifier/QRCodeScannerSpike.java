@@ -121,8 +121,7 @@ public class QRCodeScannerSpike {
     private List<String> getQrCodesFromPdf(File file) {
         List<String> result = new ArrayList<>();
 
-        try {
-            PDDocument pdDoc = PDDocument.load(file);
+        try (PDDocument pdDoc = PDDocument.load(file)) {
 
             List<RenderedImage> images = getImagesFromPDF(pdDoc);
 
@@ -262,8 +261,8 @@ public class QRCodeScannerSpike {
             // calling this will do the validation
             JWTClaimsSet claimsSet = processor.process(jwt, null);
 
-            System.out.println("Issuer is: " + claimsSet.getIssuer());
-            System.out.println("Claims set: " + claimsSet);
+            LOGGER.debug("Issuer is: " + claimsSet.getIssuer());
+            LOGGER.debug("Claims set: " + claimsSet);
         } catch (Exception e) {
             throw new RuntimeException("Could not validate token " + accessToken, e);
         }
