@@ -9,7 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -22,6 +21,9 @@ import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.apache.pdfbox.rendering.ImageType;
+import org.apache.pdfbox.rendering.PDFRenderer;
+import org.apache.pdfbox.tools.imageio.ImageIOUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,18 +36,12 @@ import com.google.zxing.NotFoundException;
 import com.google.zxing.Result;
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
-import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.Payload;
-import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.RemoteJWKSet;
-import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
-import com.nimbusds.jose.proc.JWSKeySelector;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
-import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
 /**
@@ -108,11 +104,12 @@ public class QRCodeScannerSpike {
         return null;
     }
 
-    public void readFromPdfs() throws Exception {
-
-        // Path where the QR code is saved
-        File file = new File(System.getProperty("user.home") + "/Downloads/example-covid-generated.pdf");
+    public void readFromPdfs(File file) throws Exception {
+        if (!file.exists()) {
+            throw new IllegalArgumentException("The file " + file.getAbsolutePath() + " does not exist!");
+        }
         List<String> qrCodesFromPdf = getQrCodesFromPdf(file);
+
         for (String qrCode : qrCodesFromPdf) {
             String rawJwt = smartQrCodeToJwt(qrCode);
             validateToken(rawJwt);
@@ -126,6 +123,15 @@ public class QRCodeScannerSpike {
             PDDocument pdDoc = PDDocument.load(file);
 
             List<RenderedImage> images = getImagesFromPDF(pdDoc);
+
+            // we couldn't find any images, try making the pdf a image and getting the QR code from
+            // that
+            if (images.isEmpty()) {
+                LOGGER.info("Could not find a QR image in file. Trying the convert to an image route for "
+                    + file.getAbsolutePath());
+                images.addAll(convertPdfToImages(file));
+            }
+
             LOGGER.debug(String.format("Found %s images in file %s", images.size(), file));
             for (RenderedImage renderedImage : images) {
                 // System.out.println(renderedImage);
@@ -137,6 +143,38 @@ public class QRCodeScannerSpike {
             }
         } catch (IOException e) {
             throw new RuntimeException("Could not read pdf file " + file, e);
+        }
+
+        return result;
+    }
+
+    /**
+     * If we can't pull the images right out of the pdf, then we are going to try to convert the
+     * whole page to a pdf and try to scan the code from that.
+     * 
+     * @param file to check
+     * @return an image per page
+     */
+    private List<BufferedImage> convertPdfToImages(File file) {
+        List<BufferedImage> result = new ArrayList<>();
+
+        // make the pdf into a high quality bitmap
+        try (PDDocument document = PDDocument.load(file)) {
+            PDFRenderer pdfRenderer = new PDFRenderer(document);
+            for (int page = 0; page < document.getNumberOfPages(); ++page) {
+                BufferedImage bim = pdfRenderer.renderImageWithDPI(page, 300, ImageType.BINARY);
+
+                // suffix in filename will be used as the file format
+                File pngFile = File.createTempFile(file.getName() + "-" + (page + 1) + System.currentTimeMillis() + "-",
+                    ".png");
+                pngFile.deleteOnExit();
+                ImageIOUtil.writeImage(bim, pngFile.getAbsolutePath(), 300);
+
+                // each page will be a new image to scan
+                result.add(ImageIO.read(pngFile));
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(String.format("Could not convert pdf pages to a image for file " + file), e);
         }
 
         return result;
@@ -196,58 +234,13 @@ public class QRCodeScannerSpike {
         return ImageIO.read(outputfile);
     }
 
+    // TODO remove this
     public static void main(String[] args) throws Exception {
         QRCodeScannerSpike spike = new QRCodeScannerSpike();
-        spike.readFromPdfs();
-    }
+        // Path where the QR code is saved
+        File file = new File(System.getProperty("user.home") + "/Downloads/vax-certs/example-covid-generated.pdf");
 
-    private void nimbusExample2() throws Exception {
-        // The access token to validate, typically submitted with a HTTP header like
-        // Authorization: Bearer eyJraWQiOiJDWHVwIiwidHlwIjoiYXQrand0IiwiYWxnIjoi...
-        String accessToken = "eyJraWQiOiJDWHVwIiwidHlwIjoiYXQrand0IiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJib2IiLCJzY"
-            + "3AiOlsib3BlbmlkIiwiZW1haWwiXSwiY2xtIjpbIiFCZyJdLCJpc3MiOiJodHRwczpcL1wvZGVtby5jM"
-            + "mlkLmNvbVwvYzJpZCIsImV4cCI6MTU3MTMxMjAxOCwiaWF0IjoxNTcxMzExNDE4LCJ1aXAiOnsiZ3Jvd"
-            + "XBzIjpbImFkbWluIiwiYXVkaXQiXX0sImp0aSI6ImJBT1BiNWh5TW80IiwiY2lkIjoiMDAwMTIzIn0.Q"
-            + "hTAdJK8AbdJJhQarjOz_qvAINQeWJCIYSROVaeRpBfaOrTCUy5gWRf8xrpj1DMibdHwQGPdht3chlAC8"
-            + "LGbAorEu0tLLcOwKl4Ql-o30Tdd5QhjNb6PndOY89NbQ1O6cdOZhvV4XB-jUAXi3nDgCw3zvIn2348Va"
-            + "2fOAzxUvRs2OGsEDl5d9cmL3e68YqSh7ss12y9oBDyEyz8Py7dtXgt6Tg67n9WlEBG0r4KloGDBdbCCZ"
-            + "hlEyURkHaE-3nUcjwd-CEVeqWPO0bsLhwto-80j8BtsfD649GnvaMb9YdbdYhTTs-MkRUQpQIZT0s9oK"
-            + "uzKayvZhk0c_0FoSeW7rw";
-
-        // Create a JWT processor for the access tokens
-        ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
-
-        // Set the required "typ" header "at+jwt" for access tokens issued by the
-        // Connect2id server, may not be set by other servers
-        jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>(new JOSEObjectType("at+jwt")));
-
-        // The public RSA keys to validate the signatures will be sourced from the
-        // OAuth 2.0 server's JWK set, published at a well-known URL. The RemoteJWKSet
-        // object caches the retrieved keys to speed up subsequent look-ups and can
-        // also handle key-rollover
-        JWKSource<SecurityContext> keySource = new RemoteJWKSet<>(new URL("https://demo.c2id.com/jwks.json"));
-
-        // The expected JWS algorithm of the access tokens (agreed out-of-band)
-        JWSAlgorithm expectedJWSAlg = JWSAlgorithm.RS256;
-
-        // Configure the JWT processor with a key selector to feed matching public
-        // RSA keys sourced from the JWK set URL
-        JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(expectedJWSAlg, keySource);
-
-        jwtProcessor.setJWSKeySelector(keySelector);
-
-        // Set the required JWT claims for access tokens issued by the Connect2id
-        // server, may differ with other servers
-        jwtProcessor.setJWTClaimsSetVerifier(
-            new DefaultJWTClaimsVerifier(new JWTClaimsSet.Builder().issuer("https://demo.c2id.com/c2id").build(),
-                new HashSet<>(Arrays.asList("sub", "iat", "exp", "scp", "cid", "jti"))));
-
-        // Process the token
-        SecurityContext ctx = null; // optional context parameter, not required here
-        JWTClaimsSet claimsSet = jwtProcessor.process(accessToken, ctx);
-
-        // Print out the token claims set
-        System.out.println(claimsSet.toJSONObject());
+        spike.readFromPdfs(file);
     }
 
     private void validateToken(String accessToken) throws Exception {
@@ -262,6 +255,7 @@ public class QRCodeScannerSpike {
 
         // jwt.verify(null)
         // get this from the header? Check standard if this is hard coded
+        // TODO have to use the cert in the in the cert
         RemoteJWKSet<?> jwkSet = new RemoteJWKSet<>(
             new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH));
         JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256,
