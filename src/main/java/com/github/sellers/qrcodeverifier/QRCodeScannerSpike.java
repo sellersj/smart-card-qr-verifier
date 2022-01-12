@@ -4,8 +4,10 @@ import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
 import java.io.File;
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -104,7 +106,7 @@ public class QRCodeScannerSpike {
         return null;
     }
 
-    public void readFromPdfs(File file) throws Exception {
+    public void readFromPdfs(File file) {
         if (!file.exists()) {
             throw new IllegalArgumentException("The file " + file.getAbsolutePath() + " does not exist!");
         }
@@ -234,48 +236,37 @@ public class QRCodeScannerSpike {
         return ImageIO.read(outputfile);
     }
 
-    // TODO remove this
-    public static void main(String[] args) throws Exception {
-        QRCodeScannerSpike spike = new QRCodeScannerSpike();
-        // Path where the QR code is saved
-        List<File> files = new ArrayList<>();
+    private void validateToken(String accessToken) {
+        try {
+            NoClaimsSignedJWT jwt;
 
-        for (String provCode : Arrays.asList("on", "qc")) {
-            files.add(new File(
-                System.getProperty("user.home") + "/Downloads/vax-certs/example-covid-generated-" + provCode + ".pdf"));
+            jwt = NoClaimsSignedJWT.parse(accessToken);
+
+            System.out.println("headers: " + jwt.getHeader());
+            Payload payload = jwt.getPayload();
+            // CompressionAlgorithm jsonPayload = new CompressionAlgorithm(payload.toString());
+            String jsonPayload = NoClaimsSignedJWT.decodePayload(payload.toBase64URL().toString());
+            System.out.println("payload extracted: " + jsonPayload);
+
+            // jwt.verify(null)
+            // get this from the header? Check standard if this is hard coded
+            // TODO this should be an allow list of issuers or stored within the app
+            // TODO have to use the cert in the in the cert
+            RemoteJWKSet<?> jwkSet = new RemoteJWKSet<>(
+                new URL(jwt.getJWTClaimsSet().getIssuer() + WELL_KNOWN_JWKS_PATH));
+            JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256,
+                jwkSet);
+            DefaultJWTProcessor processor = new DefaultJWTProcessor();
+            processor.setJWSKeySelector(keySelector);
+
+            // calling this will do the validation
+            JWTClaimsSet claimsSet = processor.process(jwt, null);
+
+            System.out.println("Issuer is: " + claimsSet.getIssuer());
+            System.out.println("Claims set: " + claimsSet);
+        } catch (Exception e) {
+            throw new RuntimeException("Could not validate token " + accessToken, e);
         }
-
-        // try to validate these
-        for (File file : files) {
-            spike.readFromPdfs(file);
-        }
-    }
-
-    private void validateToken(String accessToken) throws Exception {
-        // SignedJWT signedJWT = SignedJWT.parse(accessToken);
-        NoClaimsSignedJWT jwt = NoClaimsSignedJWT.parse(accessToken);
-
-        System.out.println("headers: " + jwt.getHeader());
-        Payload payload = jwt.getPayload();
-        // CompressionAlgorithm jsonPayload = new CompressionAlgorithm(payload.toString());
-        String jsonPayload = NoClaimsSignedJWT.decodePayload(payload.toBase64URL().toString());
-        System.out.println("payload extracted: " + jsonPayload);
-
-        // jwt.verify(null)
-        // get this from the header? Check standard if this is hard coded
-        // TODO this should be an allow list of issuers or stored within the app
-        // TODO have to use the cert in the in the cert
-        RemoteJWKSet<?> jwkSet = new RemoteJWKSet<>(new URL(jwt.getJWTClaimsSet().getIssuer() + WELL_KNOWN_JWKS_PATH));
-        JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256,
-            jwkSet);
-        DefaultJWTProcessor processor = new DefaultJWTProcessor();
-        processor.setJWSKeySelector(keySelector);
-
-        // calling this will do the validation
-        JWTClaimsSet claimsSet = processor.process(jwt, null);
-
-        System.out.println("Issuer is: " + claimsSet.getIssuer());
-        System.out.println("Claims set: " + claimsSet);
     }
 
 }
