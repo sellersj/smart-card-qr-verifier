@@ -238,9 +238,17 @@ public class QRCodeScannerSpike {
     public static void main(String[] args) throws Exception {
         QRCodeScannerSpike spike = new QRCodeScannerSpike();
         // Path where the QR code is saved
-        File file = new File(System.getProperty("user.home") + "/Downloads/vax-certs/example-covid-generated.pdf");
+        List<File> files = new ArrayList<>();
 
-        spike.readFromPdfs(file);
+        for (String provCode : Arrays.asList("on", "qc")) {
+            files.add(new File(
+                System.getProperty("user.home") + "/Downloads/vax-certs/example-covid-generated-" + provCode + ".pdf"));
+        }
+
+        // try to validate these
+        for (File file : files) {
+            spike.readFromPdfs(file);
+        }
     }
 
     private void validateToken(String accessToken) throws Exception {
@@ -255,9 +263,9 @@ public class QRCodeScannerSpike {
 
         // jwt.verify(null)
         // get this from the header? Check standard if this is hard coded
+        // TODO this should be an allow list of issuers or stored within the app
         // TODO have to use the cert in the in the cert
-        RemoteJWKSet<?> jwkSet = new RemoteJWKSet<>(
-            new URL("https://prd.pkey.dhdp.ontariohealth.ca" + WELL_KNOWN_JWKS_PATH));
+        RemoteJWKSet<?> jwkSet = new RemoteJWKSet<>(new URL(jwt.getJWTClaimsSet().getIssuer() + WELL_KNOWN_JWKS_PATH));
         JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256,
             jwkSet);
         DefaultJWTProcessor processor = new DefaultJWTProcessor();
