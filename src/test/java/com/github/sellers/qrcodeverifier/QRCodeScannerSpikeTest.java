@@ -14,6 +14,7 @@ import java.util.Map.Entry;
 import org.junit.jupiter.api.Test;
 
 import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.proc.SecurityContext;
 
 public class QRCodeScannerSpikeTest {
 
@@ -37,7 +38,7 @@ public class QRCodeScannerSpikeTest {
 
     @Test
     public void loadOntarioTrustKeys() {
-        Map<String, JWKSource> keys = spike.loadOntarioTrustKeys();
+        Map<String, JWKSource<SecurityContext>> keys = spike.loadOntarioTrustKeys();
 
         assertEquals(31, keys.size(),
             "should be the correct number of key groups that match provinces and territories");
@@ -46,7 +47,7 @@ public class QRCodeScannerSpikeTest {
         assertTrue(keys.containsKey("https://prd.pkey.dhdp.ontariohealth.ca"), "should have had ontario key");
 
         // quick check for null on all the keys
-        for (Entry<String, JWKSource> entry : keys.entrySet()) {
+        for (Entry<String, JWKSource<SecurityContext>> entry : keys.entrySet()) {
             assertNotNull(entry.getKey(), "key shouldbn't be null");
             assertNotNull(entry.getValue(), "value shouldbn't be null");
         }

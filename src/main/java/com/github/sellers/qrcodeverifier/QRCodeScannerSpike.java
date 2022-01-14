@@ -58,9 +58,6 @@ public class QRCodeScannerSpike {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(QRCodeScannerSpike.class);
 
-    /** The standard path for the key store. Required to be passed if using a proxy. */
-    private static final String WELL_KNOWN_JWKS_PATH = "/.well-known/jwks.json";
-
     private static final String QR_CODE_PREFIX = "shc:/";
 
     public List<RenderedImage> getImagesFromPDF(PDDocument document) throws IOException {
@@ -116,7 +113,7 @@ public class QRCodeScannerSpike {
         }
 
         // TODO put this somewhere else with object creation
-        Map<String, JWKSource> trustKeys = loadOntarioTrustKeys();
+        Map<String, JWKSource<SecurityContext>> trustKeys = loadOntarioTrustKeys();
 
         List<String> qrCodesFromPdf = getQrCodesFromPdf(file);
 
@@ -254,8 +251,8 @@ public class QRCodeScannerSpike {
      *
      * @return
      */
-    public Map<String, JWKSource> loadOntarioTrustKeys() {
-        Map<String, JWKSource> result = new HashMap<>();
+    public Map<String, JWKSource<SecurityContext>> loadOntarioTrustKeys() {
+        Map<String, JWKSource<SecurityContext>> result = new HashMap<>();
 
         ObjectMapper mapper = new ObjectMapper();
         try (InputStream in = this.getClass().getClassLoader().getResourceAsStream("verifyRulesetON.json")) {
@@ -272,7 +269,7 @@ public class QRCodeScannerSpike {
                 // it to the library
                 String keysAsJson = new ObjectMapper().writeValueAsString(entry.getValue());
 
-                result.put(entry.getKey(), new ImmutableJWKSet(JWKSet.parse(keysAsJson)));
+                result.put(entry.getKey(), new ImmutableJWKSet<SecurityContext>(JWKSet.parse(keysAsJson)));
             }
         } catch (Exception e) {
             throw new RuntimeException("Could not load the verify rules file to load the public keys", e);
@@ -281,15 +278,16 @@ public class QRCodeScannerSpike {
         return result;
     }
 
-    private void validateToken(String accessToken, Map<String, JWKSource> trustKeys) {
+    // TODO restructure this method to return have some kind of return or throwing an exception. It's unlikely that a
+    // token isn't valid at this point but it's something to check.
+    private void validateToken(String accessToken, Map<String, JWKSource<SecurityContext>> trustKeys) {
         try {
             NoClaimsSignedJWT jwt;
 
             jwt = NoClaimsSignedJWT.parse(accessToken);
 
-            System.out.println("headers: " + jwt.getHeader());
+            LOGGER.debug("headers: " + jwt.getHeader());
             Payload payload = jwt.getPayload();
-            // CompressionAlgorithm jsonPayload = new CompressionAlgorithm(payload.toString());
             String jsonPayload = NoClaimsSignedJWT.decodePayload(payload.toBase64URL().toString());
             System.out.println("payload extracted: " + jsonPayload);
 
@@ -305,7 +303,7 @@ public class QRCodeScannerSpike {
             JWKSource<?> jwkSet = trustKeys.get(issuer);
             JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256,
                 jwkSet);
-            DefaultJWTProcessor processor = new DefaultJWTProcessor();
+            DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
             processor.setJWSKeySelector(keySelector);
 
             // calling this will do the validation
