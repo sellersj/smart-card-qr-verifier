@@ -4,15 +4,14 @@ import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
 import java.io.File;
 import java.io.IOException;
-import java.net.MalformedURLException;
-import java.net.URL;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import javax.imageio.ImageIO;
 
@@ -29,6 +28,9 @@ import org.apache.pdfbox.tools.imageio.ImageIOUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
@@ -40,7 +42,9 @@ import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.Payload;
-import com.nimbusds.jose.jwk.source.RemoteJWKSet;
+import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
+import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.JWTClaimsSet;
@@ -110,11 +114,15 @@ public class QRCodeScannerSpike {
         if (!file.exists()) {
             throw new IllegalArgumentException("The file " + file.getAbsolutePath() + " does not exist!");
         }
+
+        // TODO put this somewhere else with object creation
+        Map<String, JWKSource> trustKeys = loadOntarioTrustKeys();
+
         List<String> qrCodesFromPdf = getQrCodesFromPdf(file);
 
         for (String qrCode : qrCodesFromPdf) {
             String rawJwt = smartQrCodeToJwt(qrCode);
-            validateToken(rawJwt);
+            validateToken(rawJwt, trustKeys);
         }
     }
 
@@ -150,9 +158,9 @@ public class QRCodeScannerSpike {
     }
 
     /**
-     * If we can't pull the images right out of the pdf, then we are going to try to convert the
-     * whole page to a pdf and try to scan the code from that.
-     * 
+     * If we can't pull the images right out of the pdf, then we are going to try to convert the whole page to a pdf and
+     * try to scan the code from that.
+     *
      * @param file to check
      * @return an image per page
      */
@@ -182,9 +190,9 @@ public class QRCodeScannerSpike {
     }
 
     /**
-     * 
+     *
      * TODO consider changing a parser that implements JWTParser
-     * 
+     *
      * @param qrCode smart health card QR code
      * @return a JWT token with a compressed payload
      * @throws Exception
@@ -235,7 +243,45 @@ public class QRCodeScannerSpike {
         return ImageIO.read(outputfile);
     }
 
-    private void validateToken(String accessToken) {
+    /**
+     * Loads the json provided by the Ontario app. This is checked into source control but can be updated using a
+     * different job so it's kept up to date. By storing it here it will allow it to remove the need for an outbound
+     * network connection.
+     *
+     * We are only using the files to pull out the public keys.
+     *
+     * Location the file is from is https://files.ontario.ca/apps/verify/verifyRulesetON.json
+     *
+     * @return
+     */
+    public Map<String, JWKSource> loadOntarioTrustKeys() {
+        Map<String, JWKSource> result = new HashMap<>();
+
+        ObjectMapper mapper = new ObjectMapper();
+        try (InputStream in = this.getClass().getClassLoader().getResourceAsStream("verifyRulesetON.json")) {
+            JsonNode json = mapper.readTree(in);
+
+            JsonNode publicKeys = json.get("publicKeys");
+
+            // what we are doing here is partially loading the map with jackson so we can pass the string of the "keys"
+            // section to the nimbus library that has extra validation on the node
+            Map<String, Object> partialMap = mapper.convertValue(publicKeys, new TypeReference<Map<String, Object>>() {
+            });
+            for (Entry<String, Object> entry : partialMap.entrySet()) {
+                // use jackson to convert the keys section of the for that value back into a json string so we can hand
+                // it to the library
+                String keysAsJson = new ObjectMapper().writeValueAsString(entry.getValue());
+
+                result.put(entry.getKey(), new ImmutableJWKSet(JWKSet.parse(keysAsJson)));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Could not load the verify rules file to load the public keys", e);
+        }
+
+        return result;
+    }
+
+    private void validateToken(String accessToken, Map<String, JWKSource> trustKeys) {
         try {
             NoClaimsSignedJWT jwt;
 
@@ -247,12 +293,16 @@ public class QRCodeScannerSpike {
             String jsonPayload = NoClaimsSignedJWT.decodePayload(payload.toBase64URL().toString());
             System.out.println("payload extracted: " + jsonPayload);
 
-            // jwt.verify(null)
-            // get this from the header? Check standard if this is hard coded
-            // TODO this should be an allow list of issuers or stored within the app
-            // TODO have to use the cert in the in the cert
-            RemoteJWKSet<?> jwkSet = new RemoteJWKSet<>(
-                new URL(jwt.getJWTClaimsSet().getIssuer() + WELL_KNOWN_JWKS_PATH));
+            String issuer = jwt.getJWTClaimsSet().getIssuer();
+            if (!trustKeys.containsKey(issuer)) {
+                // this will only get here if a valid token is given that's outside the "circle of trust" of who we
+                // allow to sign the tokens
+                throw new IllegalArgumentException(
+                    String.format("Could not validate token with issuer %s which is not in our list of %s for token %s",
+                        issuer, trustKeys.keySet(), accessToken));
+            }
+
+            JWKSource<?> jwkSet = trustKeys.get(issuer);
             JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256,
                 jwkSet);
             DefaultJWTProcessor processor = new DefaultJWTProcessor();
