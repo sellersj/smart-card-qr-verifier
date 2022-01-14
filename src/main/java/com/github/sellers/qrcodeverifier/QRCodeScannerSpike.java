@@ -300,9 +300,9 @@ public class QRCodeScannerSpike {
                         issuer, trustKeys.keySet(), accessToken));
             }
 
-            JWKSource<?> jwkSet = trustKeys.get(issuer);
-            JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector(JWSAlgorithm.ES256,
-                jwkSet);
+            JWKSource<SecurityContext> jwkSet = trustKeys.get(issuer);
+            JWSVerificationKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(
+                JWSAlgorithm.ES256, jwkSet);
             DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
             processor.setJWSKeySelector(keySelector);
 
