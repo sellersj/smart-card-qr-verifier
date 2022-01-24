@@ -15,6 +15,10 @@ References
 After trying many, many libraries, I found nimbus could read it and allow modifications to be able to deal with the SMART health card QA code
 * https://connect2id.com/products/nimbus-jose-jwt
 
+#### SMART health card dev tools
+This is where I found the schema that I use to generate java model classes.
+* https://github.com/smart-on-fhir/health-cards-dev-tools/
+
 #### Vaccine type code, draft
 * http://build.fhir.org/valueset-vaccine-code.html
 
