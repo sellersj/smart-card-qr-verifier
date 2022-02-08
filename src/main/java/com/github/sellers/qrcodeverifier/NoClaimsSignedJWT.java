@@ -12,6 +12,13 @@ import com.nimbusds.jose.util.DeflateUtils;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
+/**
+ * Work around since the library doesn't do decompression on payloads for JWT's. Created a ticket
+ * https://bitbucket.org/connect2id/nimbus-jose-jwt/issues/464/consider-decompression-of-payload-if-it-is
+ *
+ * @author SellersJ
+ *
+ */
 public class NoClaimsSignedJWT extends SignedJWT {
 
     /** */
@@ -45,12 +52,12 @@ public class NoClaimsSignedJWT extends SignedJWT {
     }
 
     /**
-     * TODO figure out where we should have this. Ideally we could just override the Payload method
-     * but not sure how to do that yet
-     * 
-     * Takes a base64 string of a compressed string that does not have any header info on it and
-     * converts it into a string.
-     * 
+     * TODO figure out where we should have this. Ideally we could just override the Payload method but not sure how to
+     * do that yet
+     *
+     * Takes a base64 string of a compressed string that does not have any header info on it and converts it into a
+     * string.
+     *
      * @param payload base64 string of compressed text
      * @return the decompressed string
      * @throws Exception
