@@ -287,6 +287,7 @@ public class QRCodeScannerSpike {
             jwt = NoClaimsSignedJWT.parse(accessToken);
 
             LOGGER.debug("headers: " + jwt.getHeader());
+            System.out.println("headers: " + jwt.getHeader());
             Payload payload = jwt.getPayload();
             String jsonPayload = NoClaimsSignedJWT.decodePayload(payload.toBase64URL().toString());
             System.out.println("payload extracted: " + jsonPayload);
